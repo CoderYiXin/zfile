@@ -2,6 +2,7 @@ package im.zhaojun.zfile.module.user.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
 import cn.dev33.satoken.stp.StpUtil;
+import cn.hutool.extra.spring.SpringUtil;
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
 import com.github.xiaoymin.knife4j.annotations.ApiSort;
 import im.zhaojun.zfile.core.annotation.ApiLimit;
@@ -69,7 +70,9 @@ public class UserController {
         SystemConfigDTO systemConfigDTO = systemConfigService.getSystemConfig();
         String secureLoginEntry = systemConfigDTO.getSecureLoginEntry();
         RequestMappingInfo requestMappingInfo = dynamicLoginEntryService.buildLoginRequestMappingInfo(secureLoginEntry);
-        dynamicLoginEntryService.registerMappingHandlerMapping(SystemConfig.SECURE_LOGIN_ENTRY_NAME, requestMappingInfo, this, doLoginMethod);
+        // 使用代理对象注册，否则 Spring MVC 反射调用时会绕过 AOP，LoginLogAspect 等切面将失效
+        UserController proxy = SpringUtil.getBean(UserController.class);
+        dynamicLoginEntryService.registerMappingHandlerMapping(SystemConfig.SECURE_LOGIN_ENTRY_NAME, requestMappingInfo, proxy, doLoginMethod);
         log.info("注册安全登录入口成功，当前登录路径为: {} ", LoginEntryPathUtils.resolveLoginPath(secureLoginEntry));
     }
 
