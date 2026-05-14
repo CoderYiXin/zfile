@@ -17,7 +17,17 @@ public class OnlyOfficeFile {
 
     private String storageKey;
 
+    /**
+     * 完整路径(已拼接用户根目录 / 分享根目录), 作为缓存键, 保证不同用户根目录下同名文件互不冲突,
+     * 同时让同一物理文件的多人预览能命中同一个 OnlyOffice 协同编辑 key.
+     */
     private String pathAndName;
+
+    /**
+     * 用户视角的原始相对路径(不含用户根目录). 回调写回时使用该路径调用 {@code uploadFile},
+     * 让下游存储实现内部再拼接 {@code getCurrentUserBasePath()}, 避免重复拼接导致文件落到错误位置.
+     */
+    private String originalPath;
 
     /**
      * 发起预览的用户 ID. 用于 OnlyOffice 回调时的权限再校验与上下文切换,
@@ -38,9 +48,10 @@ public class OnlyOfficeFile {
         this.pathAndName = pathAndName;
     }
 
-    public OnlyOfficeFile(String storageKey, String pathAndName, Integer userId, boolean allowEdit) {
+    public OnlyOfficeFile(String storageKey, String pathAndName, String originalPath, Integer userId, boolean allowEdit) {
         this.storageKey = storageKey;
         this.pathAndName = pathAndName;
+        this.originalPath = originalPath;
         this.userId = userId;
         this.allowEdit = allowEdit;
     }

@@ -28,7 +28,6 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
-import org.apache.commons.lang3.tuple.Pair;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -93,44 +92,36 @@ public class OnlyOfficeController {
             pathIsDirectory = false,
             passwordFieldExpression = "[0].password")
     public AjaxJson<JSONObject> getPreviewFileJSONInfo(@Valid @RequestBody FileItemRequest fileItemRequest) {
-        // 根据存储策略获取文件信息(下载地址), 会校验权限.
-        Pair<FileItemResult, Boolean> pair = getFileInfo(fileItemRequest);
-        FileItemResult fileInfo = pair.getKey();
-        Boolean hasUploadPermission = pair.getRight();
-
-        Integer currentUserId = ZFileAuthUtil.getCurrentUserId();
-        // 把发起预览的用户 ID 一并写入缓存, 回调时据此校验权限, 避免信任回调中的 users 字段.
-        OnlyOfficeFile onlyOfficeFile = new OnlyOfficeFile(fileItemRequest.getStorageKey(), fileItemRequest.getPath(),
-                currentUserId, false);
-
-        JSONObject onlyOfficePayload = onlyOfficeConfigService.createConfig(fileInfo, onlyOfficeFile,
-                Boolean.TRUE.equals(hasUploadPermission));
-        return AjaxJson.getSuccessData(onlyOfficePayload);
-    }
-
-    private Pair<FileItemResult, Boolean> getFileInfo(FileItemRequest fileItemRequest) {
         String storageKey = fileItemRequest.getStorageKey();
         Integer storageId = storageSourceService.findIdByKey(storageKey);
         if (storageId == null) {
             throw new InvalidStorageSourceBizException(storageKey);
         }
 
-        // 处理请求参数默认值
         fileItemRequest.handleDefaultValue();
 
-        // 获取文件信息
         AbstractBaseFileService<?> fileService = StorageSourceContext.getByStorageId(storageId);
+        // 原始(用户视角)路径, 不含用户根目录, 回调时用它直接调 uploadFile, 避免重复拼接.
+        String originalPath = fileItemRequest.getPath();
+
         try {
-            FileItemResult fileItem = fileService.getFileItem(fileItemRequest.getPath());
-            if (fileItem == null) {
+            FileItemResult fileInfo = fileService.getFileItem(originalPath);
+            if (fileInfo == null) {
                 throw new BizException("文件不存在");
             }
 
-            String currentUserBasePath = fileService.getCurrentUserBasePath();
-            fileItemRequest.setPath(StringUtils.concat(currentUserBasePath, fileItemRequest.getPath()));
+            // 拼接出完整路径作为缓存键, 让不同用户根目录下的同名文件互不冲突,
+            // 同时同一物理文件的多人预览能命中同一个 OnlyOffice 协同编辑 key.
+            String fullPath = StringUtils.concat(fileService.getCurrentUserBasePath(), originalPath);
 
             boolean hasUploadPermission = userStorageSourceService.hasCurrentUserStorageOperatorPermission(storageId, FileOperatorTypeEnum.UPLOAD);
-            return Pair.of(fileItem, hasUploadPermission);
+
+            Integer currentUserId = ZFileAuthUtil.getCurrentUserId();
+            // 把发起预览的用户 ID 一并写入缓存, 回调时据此校验权限, 避免信任回调中的 users 字段.
+            OnlyOfficeFile onlyOfficeFile = new OnlyOfficeFile(storageKey, fullPath, originalPath, currentUserId, false);
+
+            JSONObject onlyOfficePayload = onlyOfficeConfigService.createConfig(fileInfo, onlyOfficeFile, hasUploadPermission);
+            return AjaxJson.getSuccessData(onlyOfficePayload);
         } catch (Exception e) {
             throw new BizException("获取文件信息失败: " + e.getMessage());
         }
@@ -231,8 +222,10 @@ public class OnlyOfficeController {
                     URLConnection connection = openOnlyOfficeDownloadConnection(onlyOfficeCallback.getUrl(), systemConfig.getOnlyOfficeUrl());
                     long contentLength = connection.getContentLengthLong();
                     try (InputStream inputStream = connection.getInputStream()) {
-                        String pathAndName = onlyOfficeFile.getPathAndName();
-                        proxyUploadService.uploadFile(pathAndName, inputStream, contentLength);
+                        // 使用原始相对路径(不含用户根目录), 由 uploadFile 内部按当前登录身份重新拼接 getCurrentUserBasePath,
+                        // 避免缓存中的完整路径再叠加一次根目录, 把文件写到 /根目录/根目录/文件名 这样的错误位置.
+                        String originalPath = onlyOfficeFile.getOriginalPath();
+                        proxyUploadService.uploadFile(originalPath, inputStream, contentLength);
                     }
                 } catch (IOException | URISyntaxException e) {
                     log.warn("OnlyOffice 回调下载地址拒绝或访问失败: key={}, urlHost={}, reason={}",

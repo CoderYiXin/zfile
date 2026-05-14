@@ -130,7 +130,9 @@ public class ShareLinkController {
         String fullPath = StringUtils.concat(shareLink.getSharePath(), request.getPath());
 
         // 分享场景禁止编辑保存, 用 shareUserId 作为缓存用户身份, 即使 callback 伪造也只对应分享者.
-        OnlyOfficeFile onlyOfficeFile = new OnlyOfficeFile(storageKey, fullPath, shareLink.getUserId(), false);
+        // originalPath 透传 request.getPath(), 与普通预览保持一致, 避免回调写回时双重拼接.
+        OnlyOfficeFile onlyOfficeFile = new OnlyOfficeFile(storageKey, fullPath, request.getPath(),
+                shareLink.getUserId(), false);
 
         try {
             // 设置分享上下文, 让 createConfig 内部生成下载/回调链接时按分享视角解析.
