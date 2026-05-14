@@ -64,14 +64,12 @@ public class ProxyDownloadController {
         // 进行上传.
         AbstractProxyTransferService<?> proxyDownloadService = (AbstractProxyTransferService<?>) storageServiceByKey;
 
-        // 如果是私有空间才校验签名.
-        boolean privateStorage = proxyDownloadService.getParam().isProxyPrivate();
-        if (privateStorage) {
-            Integer storageId = proxyDownloadService.getStorageId();
-            boolean valid = ProxyDownloadUrlUtils.validSignatureExpired(storageId, filePath, signature);
-            if (!valid) {
-                throw new ErrorPageBizException(ErrorCode.BIZ_INVALID_SIGNATURE);
-            }
+        // 强制校验签名: 无论是否私有空间, 代理下载都必须携带有效签名,
+        // 否则攻击者可在 proxyPrivate=false 时构造任意路径下载其他用户/目录的文件 (#821).
+        Integer storageId = proxyDownloadService.getStorageId();
+        boolean valid = ProxyDownloadUrlUtils.validSignatureExpired(storageId, filePath, signature);
+        if (!valid) {
+            throw new ErrorPageBizException(ErrorCode.BIZ_INVALID_SIGNATURE);
         }
 
         return proxyDownloadService.downloadToStream(filePath);

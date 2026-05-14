@@ -73,9 +73,13 @@ public abstract class AbstractProxyTransferService<P extends ProxyTransferParam>
 			path = FileUtils.getParentPath(pathAndName);
 		}
 
-		if (param.isProxyPrivate()) {
-			urlBuilder.addQuery("signature", ProxyDownloadUrlUtils.generatorSignature(storageId, pathAndName, param.getProxyTokenTime()));
-		}
+		// 无论是否为私有空间, 代理下载链接都必须携带签名,
+		// 公开模式使用永久签名, 私有模式使用带过期时间的签名.
+		// 这样可以从密码学层面阻止通过修改 URL 中的路径访问其他用户/路径的文件 (#821).
+		String signature = param.isProxyPrivate()
+				? ProxyDownloadUrlUtils.generatorSignature(storageId, pathAndName, param.getProxyTokenTime())
+				: ProxyDownloadUrlUtils.generatorPermanentSignature(storageId, pathAndName);
+		urlBuilder.addQuery("signature", signature);
 
 		String url;
 
