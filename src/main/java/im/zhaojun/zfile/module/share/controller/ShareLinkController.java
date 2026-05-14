@@ -1,14 +1,22 @@
 package im.zhaojun.zfile.module.share.controller;
 
 import cn.dev33.satoken.annotation.SaCheckLogin;
+import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.github.xiaoymin.knife4j.annotations.ApiOperationSupport;
 import com.github.xiaoymin.knife4j.annotations.ApiSort;
+import im.zhaojun.zfile.core.exception.core.BizException;
 import im.zhaojun.zfile.core.util.AjaxJson;
+import im.zhaojun.zfile.core.util.StringUtils;
 import im.zhaojun.zfile.core.util.ZFileAuthUtil;
+import im.zhaojun.zfile.module.onlyoffice.model.OnlyOfficeFile;
+import im.zhaojun.zfile.module.onlyoffice.service.OnlyOfficeConfigService;
+import im.zhaojun.zfile.module.share.context.ShareAccessContext;
+import im.zhaojun.zfile.module.share.model.entity.ShareLink;
 import im.zhaojun.zfile.module.share.model.request.CreateShareLinkRequest;
 import im.zhaojun.zfile.module.share.model.request.ShareFileListRequest;
 import im.zhaojun.zfile.module.share.model.request.ShareLinkListRequest;
+import im.zhaojun.zfile.module.share.model.request.ShareOnlyOfficeConfigTokenRequest;
 import im.zhaojun.zfile.module.share.model.request.VerifySharePasswordRequest;
 import im.zhaojun.zfile.module.share.model.result.CreateShareLinkResult;
 import im.zhaojun.zfile.module.share.model.result.ShareFileInfoResult;
@@ -17,6 +25,7 @@ import im.zhaojun.zfile.module.share.service.ShareLinkFileService;
 import im.zhaojun.zfile.module.share.service.ShareLinkService;
 import im.zhaojun.zfile.module.storage.annotation.StoragePermissionCheck;
 import im.zhaojun.zfile.module.storage.model.enums.FileOperatorTypeEnum;
+import im.zhaojun.zfile.module.storage.model.result.FileItemResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.enums.ParameterIn;
@@ -45,9 +54,12 @@ public class ShareLinkController {
 
     @Resource
     private ShareLinkService shareLinkService;
-    
+
     @Resource
     private ShareLinkFileService shareLinkFileService;
+
+    @Resource
+    private OnlyOfficeConfigService onlyOfficeConfigService;
 
     @ApiOperationSupport(order = 1)
     @Operation(summary = "创建分享链接", description = "根据指定的文件或文件夹创建分享链接")
@@ -92,6 +104,42 @@ public class ShareLinkController {
         );
         
         return AjaxJson.getSuccessData(result);
+    }
+
+    @ApiOperationSupport(order = 9)
+    @Operation(summary = "获取分享 OnlyOffice 预览配置", description = "校验分享访问后生成 OnlyOffice 预览配置, 分享场景下不允许编辑保存")
+    @PostMapping("/onlyOffice/config/token")
+    public AjaxJson<JSONObject> getShareOnlyOfficeConfigToken(@Valid @RequestBody ShareOnlyOfficeConfigTokenRequest request) {
+        request.handleDefaultValue();
+
+        // 校验分享有效性 + 分享密码.
+        ShareLink shareLink = shareLinkService.getValidShareLink(request.getShareKey());
+        if (!shareLinkService.verifyPassword(request.getShareKey(), request.getSharePassword())) {
+            throw new BizException("分享密码不正确");
+        }
+
+        // 通过分享文件服务获取实际文件信息(内部会设置 ShareAccessContext, 走分享 basePath).
+        FileItemResult fileItem = shareLinkFileService.getShareFileItem(request.getShareKey(),
+                request.getPath(),
+                request.getSharePassword());
+        if (fileItem == null) {
+            throw new BizException("文件不存在");
+        }
+
+        String storageKey = shareLink.getStorageKey();
+        String fullPath = StringUtils.concat(shareLink.getSharePath(), request.getPath());
+
+        // 分享场景禁止编辑保存, 用 shareUserId 作为缓存用户身份, 即使 callback 伪造也只对应分享者.
+        OnlyOfficeFile onlyOfficeFile = new OnlyOfficeFile(storageKey, fullPath, shareLink.getUserId(), false);
+
+        try {
+            // 设置分享上下文, 让 createConfig 内部生成下载/回调链接时按分享视角解析.
+            ShareAccessContext.setShareAccess(request.getShareKey(), shareLink.getSharePath(), shareLink.getUserId());
+            JSONObject payload = onlyOfficeConfigService.createConfig(fileItem, onlyOfficeFile, false);
+            return AjaxJson.getSuccessData(payload);
+        } finally {
+            ShareAccessContext.clear();
+        }
     }
 
     @ApiOperationSupport(order = 5)
