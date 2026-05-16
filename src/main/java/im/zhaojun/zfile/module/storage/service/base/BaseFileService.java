@@ -200,10 +200,15 @@ public interface BaseFileService {
     String getUploadUrl(String path, String name, Long size);
 
     /**
-     * 获取文件下载地址
+     * 获取文件下载地址。
+     *
+     * 路径契约：pathAndName 必须是相对存储源 basePath 的绝对路径（调用方已拼好用户根目录 /
+     * 分享 sharePath）。本方法实现不得再调用 getCurrentUserBasePath() 二次拼接——其调用链
+     * （直链 / 短链 / 代理回源 / 分享下载）常处于匿名或跨用户上下文，取不到正确的用户根目录；
+     * 实现内部只拼 basePath 即可，可参照同属“绝对入参”的 downloadToStream 写法。
      *
      * @param   pathAndName
-     *          文件路径及文件名称
+     *          相对 basePath 的绝对路径（已含用户根目录 / sharePath）
      *
      * @return  文件下载地址
      */

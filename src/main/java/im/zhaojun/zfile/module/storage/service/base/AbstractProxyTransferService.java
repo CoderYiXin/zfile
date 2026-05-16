@@ -149,10 +149,14 @@ public abstract class AbstractProxyTransferService<P extends ProxyTransferParam>
 
 
 	/**
-	 * 代理下载指定文件
+	 * 代理下载指定文件。
+	 *
+	 * 路径契约：pathAndName 必须是相对存储源 basePath 的绝对路径（调用方已拼好用户根目录 /
+	 * 分享 sharePath）。实现不得再调用 getCurrentUserBasePath() 二次拼接——代理回源是无登录态
+	 * 的新线程，取不到正确的用户根目录。与 getDownloadUrl 同属“绝对入参”族。
 	 *
 	 * @param   pathAndName
-	 *          文件路径及文件名称
+	 *          相对 basePath 的绝对路径（已含用户根目录 / sharePath）
 	 *
 	 * @return  文件响应.
 	 */

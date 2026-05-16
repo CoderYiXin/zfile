@@ -169,6 +169,26 @@ public class Open115ServiceImpl extends AbstractProxyTransferService<Open115Para
         return itemJsonToFileItem(fileItem, FileUtils.getParentPath(pathAndName));
     }
 
+    /**
+     * 按"已含用户根目录/分享路径的完整路径(相对 param.basePath)"获取文件项, 仅拼 param.basePath,
+     * 不再拼 getCurrentUserBasePath(); 供 getDownloadUrl 使用, 避免登录用户访问分享/直链下载时
+     * 与已含 sharePath 的路径二次拼接导致路径错误. 与 {@link #getFileItem} 的区别仅在路径拼接.
+     */
+    private FileItemResult getOriginFileItem(String pathAndName) {
+        String fullPath = StringUtils.concat(param.getBasePath(), pathAndName);
+        String fileId = idCacheService.getFileId(fullPath, false);
+        if (fileId == null) {
+            fileId = idCacheService.getPathId(fullPath, true);
+        }
+
+        // https://www.yuque.com/115yun/open/rl8zrhe2nag21dfw
+        JSONObject jsonObject = sendGetRequestWithAuth("https://proapi.115.com/open/folder/get_info", new JSONObject()
+                .fluentPut("file_id", fileId));
+
+        JSONObject fileItem = jsonObject.getJSONObject("data");
+        return itemJsonToFileItem(fileItem, FileUtils.getParentPath(pathAndName));
+    }
+
     @Override
     public boolean newFolder(String path, String name) {
         if (StringUtils.length(name) > 255) {
@@ -330,7 +350,10 @@ public class Open115ServiceImpl extends AbstractProxyTransferService<Open115Para
         if (param.isEnableProxyDownload() && StringUtils.isEmpty(param.getDomain())) {
             return getProxyDownloadUrl(pathAndName);
         } else {
-            FileItemResult fileItem = getFileItem(pathAndName);
+            // 此处 pathAndName 已是包含用户根目录/分享路径的完整路径(相对 param.basePath),
+            // 必须用 getOriginFileItem(仅拼 param.basePath); 不能用 getFileItem(会再拼一次
+            // getCurrentUserBasePath 导致重复, 登录用户访问分享/直链下载时路径错误).
+            FileItemResult fileItem = getOriginFileItem(pathAndName);
             if (fileItem == null || fileItem.getType() != FileTypeEnum.FILE) {
                 throw new NotFoundAccessException(ErrorCode.BIZ_FILE_NOT_EXIST);
             }

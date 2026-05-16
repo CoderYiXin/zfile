@@ -320,7 +320,10 @@ public abstract class AbstractMicrosoftDriveService<P extends MicrosoftDrivePara
         if (param.isEnableProxyDownload() && StringUtils.isEmpty(param.getProxyDomain())) {
             return getProxyDownloadUrl(pathAndName);
         }
-        FileItemResult fileItem = getFileItem(pathAndName);
+        // 此处 pathAndName 已是包含用户根目录/分享路径的完整路径(相对 param.basePath),
+        // 必须用 getOriginFileItem(仅拼 param.basePath); 不能用 getFileItem(会再拼一次
+        // getCurrentUserBasePath 导致重复, 登录用户访问分享/直链下载时路径错误).
+        FileItemResult fileItem = getOriginFileItem(pathAndName);
         if (fileItem == null) {
             throw new NotFoundAccessException(ErrorCode.BIZ_FILE_NOT_EXIST);
         }
